@@ -55,9 +55,12 @@ app.post('/upload/zip', (req, res) => {
                 promiseArr.push(utils.readSheet(path.join(folderPath, file), 'Sheet1'));
             });
             Promise.all(promiseArr).then(data => {
-                res.json({
-                    message: 'All files read',
-                    data: data
+                data = null;
+                utils.stitchData(folderPath).then(completeData => {
+                    res.json({
+                        message: 'Complete Data',
+                        data: completeData
+                    });
                 });
             }).catch(err => {
                 logger.error(err);

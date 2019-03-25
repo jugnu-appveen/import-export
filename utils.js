@@ -45,14 +45,14 @@ e.readSheet = (filePath, sheetName) => {
                 }
                 promise = Promise.all(promiseArr)
             } else {
-                e.convertToJSON(formulae);
+                promise = e.convertToJSON(formulae);
             }
             promise.then(data => {
                 if (Array.isArray(data[0])) {
                     data = Array.prototype.concat.apply([], data);
                 }
                 let fileName = filePath.split('/')[filePath.split('/').length - 1];
-                fileName = fileName.replace(/.csv$/,'');
+                fileName = fileName.replace(/.csv$/, '');
                 e.prepareForMerge(fileName, data).then(group => {
                     e.saveJson(filePath, group).then(status => {
                         resolve(group);
@@ -114,7 +114,7 @@ e.convertToJSON = (formulae) => {
                     tempArr = [];
                 }
                 tempObj = Object.defineProperty({}, keyVal[0].replace(/[0-9]+/, ''), {
-                    value: keyVal[1].indexOf('\'') === 0 ?  keyVal[1].substr(1, keyVal[1].length) : keyVal[1],
+                    value: keyVal[1].indexOf('\'') === 0 ? keyVal[1].substr(1, keyVal[1].length) : keyVal[1],
                     configurable: true,
                     enumerable: true,
                     writable: true
@@ -135,8 +135,41 @@ e.convertToJSON = (formulae) => {
 e.stitchData = (folderPath) => {
     return new Promise((resolve, reject) => {
         try {
-            
-            resolve(data);
+            let dataMap = {};
+            let records = [];
+            const fileList = fs.readdirSync(folderPath);
+            fileList.forEach(file => {
+                if (file === 'main.json') {
+                    records = JSON.parse(fs.readFileSync(path.join(folderPath, file), 'utf8'));
+                } else {
+                    dataMap = Object.assign(dataMap, JSON.parse(fs.readFileSync(path.join(folderPath, file), 'utf8')));
+                }
+            });
+            const header = JSON.parse(JSON.stringify(records[0]));
+            const splitCount = 200;
+            const segmentLength = Math.floor(records.length / splitCount);
+            const promiseArr = [];
+            let promise;
+            if (records.length > splitCount) {
+                for (let i = 0; i < splitCount; i++) {
+                    if (i === splitCount - 1) {
+                        promiseArr.push(findAndReplace(header, records, dataMap));
+                    } else {
+                        promiseArr.push(findAndReplace(header, records.splice(i, segmentLength), dataMap));
+                    }
+                }
+                promise = Promise.all(promiseArr)
+            } else {
+                promise = findAndReplace(header, records, dataMap);
+            }
+            promise.then(data => {
+                if (Array.isArray(data[0])) {
+                    data = Array.prototype.concat.apply([], data);
+                }
+                resolve(data);
+            }).catch(err => {
+                reject(err);
+            });
         } catch (e) {
             reject(e);
         }
@@ -191,7 +224,7 @@ e.prepareForMerge = (fileName, data) => {
 e.saveJson = (filePath, data) => {
     return new Promise((resolve, reject) => {
         try {
-            const newFileName = filePath.replace(/.csv$/,'');
+            const newFileName = filePath.replace(/.csv$/, '');
             fs.writeFile(newFileName + '.json', JSON.stringify(data), 'utf8', (err) => {
                 if (err) {
                     reject(err);
@@ -207,6 +240,31 @@ e.saveJson = (filePath, data) => {
 };
 
 /**
+ * @param {string} key key of object
+ * @param {object} obj data object
+ * @param {string} [delimeter] delimiter for key
+ * @returns {any} value from object
+ */
+e.getValue = function (key, obj, delimeter) {
+    if (!obj || Object.keys(obj).length === 0) {
+        return null;
+    }
+    if (!delimeter) {
+        delimeter = '.';
+    }
+    let keys = key;
+    if (!Array.isArray(key)) {
+        if (obj[key]) {
+            return obj[key];
+        }
+        keys = key.split(delimeter);
+    }
+    return keys.reduce(function (p, c) {
+        return p ? p[c] : null;
+    }, obj);
+};
+
+/**
  * @param {Object} header Header object
  * @param {Object} row row object
  * @returns {Object} Object with keys and values
@@ -219,6 +277,33 @@ function createObject(header, row) {
         }
     });
     return obj;
+}
+
+/**
+ * @param {Object} header
+ * @param {Object[]} records
+ * @param {Object} dataMap
+ * @returns {Promise}
+ */
+function findAndReplace(header, records, dataMap) {
+    return new Promise((resolve, reject) => {
+        try {
+            const obj = {};
+            records.forEach((row) => {
+                Object.keys(row).forEach(key => {
+                    if (row[key].startsWith('$ODP_')) {
+                        const path = row[key].replace('$ODP_', '');
+                        row[key] = e.getValue(path, dataMap, '_');
+                    }
+                    row[header[key]] = row[key];
+                    delete row[key];
+                });
+            });
+            resolve(records);
+        } catch (e) {
+            reject(e);
+        }
+    });
 }
 
 module.exports = e;
