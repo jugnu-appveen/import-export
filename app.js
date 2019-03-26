@@ -82,7 +82,11 @@ app.post('/upload/zip', (req, res) => {
 });
 
 app.put('/readsheet/:filename', (req, res) => {
-    utils.readSheet(path.join(__dirname, 'uploads', req.params.filename), req.body.sheetName).then(data => {
+    utils.readSheet(path.join(__dirname, 'uploads', req.params.filename), req.body.sheetName, true).then(data => {
+        data.forEach(row=>{
+            console.log(Object.keys(row).length);
+            
+        });
         res.json({
             message: 'Sheet read',
             data: data

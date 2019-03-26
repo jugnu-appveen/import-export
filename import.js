@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const mcrud = require('mcrud');
-const j2cParser = require('json2csv').Parser;
+const XLSX = require('xlsx');
+const deepmerge = require('deepmerge');
 
 const crudMethods = mcrud.getCRUDMethods({
     url: 'mongodb://localhost:27017',
@@ -10,81 +11,80 @@ const crudMethods = mcrud.getCRUDMethods({
     idPattern: 'DATA##########'
 });
 
-const arrayGroup = {};
+const workbook = XLSX.readFile(path.join(__dirname, 'export', 'main.xls'));
+const sheetName = Object.keys(workbook.Sheets)[0];
+if (workbook.Custprops) {
+    console.log(workbook.Custprops);
+}
+const data = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+const unFlattenData = data.map(e => unFlattenArray(e)).map(e => unFlatten(e));
+console.log(JSON.stringify(unFlattenData, null, 4));
 
-crudMethods.get({
-    count: 10000
-}).then(records => {
-    records.forEach(e => {
-        delete e._id;
-    });
-    records = records.map(e => flatten(e));
-    records.forEach((row, i) => {
-        checkForArray(row, i);
-    });
-    createCSV('main', records);
-    Object.keys(arrayGroup).forEach(key => {
-        createCSV(key, JSON.parse(JSON.stringify(arrayGroup[key])));
-    });
-}).catch(err => {
-    console.log(err);
-});
-
-function flatten(obj, deep, parent) {
-    let temp = {};
-    Object.keys(obj).forEach(function (key) {
-        const thisKey = parent ? parent + '.' + key : key;
-        if (typeof obj[key] === 'object') {
-            if (Array.isArray(obj[key])) {
-                if (deep) {
-                    obj[key].forEach((item, i) => {
-                        if (typeof item === 'object') {
-                            Object.assign(temp, flatten(item, deep, thisKey + '.' + i))
-                        } else {
-                            temp[thisKey + '.' + i] = item;
-                        }
-                    });
-                } else {
-                    temp[thisKey] = obj[key];
-                }
-            } else {
-                temp = Object.assign(temp, flatten(obj[key], deep, thisKey));
-            }
-        }
-        else {
-            temp[thisKey] = obj[key];
+function unFlatten(obj, delimeter) {
+    if (!obj || Object.keys(obj).length === 0) {
+        return null;
+    }
+    if (!delimeter) {
+        delimeter = '.';
+    }
+    var temp = {};
+    Object.keys(obj).forEach(_key => {
+        let keys = _key.split(delimeter);
+        if (keys.length > 1) {
+            keys.reverse();
+            let tempObj = keys.reduce((p, c) => {
+                return Object.defineProperty({}, c, {
+                    value: p,
+                    enumerable: true,
+                    configurable: true,
+                    writable: true
+                });
+            }, obj[_key]);
+            temp = deepmerge(temp, tempObj);
+        } else {
+            temp[_key] = obj[_key];
         }
     });
     return temp;
 };
 
-
-function createCSV(filename, data) {
-    const parser = new j2cParser();
-    fs.writeFileSync(path.join(__dirname, 'export', filename + '.csv'), parser.parse(data), 'utf8');
-}
-
-function checkForArray(record, index) {
-    Object.keys(record).forEach(key => {
-        if (Array.isArray(record[key])) {
-            if (record[key].length > 0) {
-                if (!arrayGroup[key]) {
-                    arrayGroup[key] = [];
-                }
-                arrayGroup[key] = Array.prototype.concat.apply(arrayGroup[key], record[key].map(item => {
-                    if (typeof item === 'object') {
-                        return Object.assign({ _refId: index }, item);
-                    } else {
-                        const t = {};
-                        t._refId = index;
-                        t._value = item;
-                        return t;
-                    }
-                }));
-                record[key] = '$ODP_' + key + '_' + index;
-            } else {
-                record[key] = null;
+function unFlattenArray(obj, delimeter) {
+    if (!obj || Object.keys(obj).length === 0) {
+        return null;
+    }
+    if (!delimeter) {
+        delimeter = '.';
+    }
+    var temp = {};
+    Object.keys(obj).forEach(_key => {
+        let segments = _key.match(/(.*)(\.[0-9]+\.*)(.*)/);
+        if (segments) {
+            const firstKey = segments[1];
+            const secondKey = segments[3];
+            const currIndex = segments[2].replace(/^\./, '').replace(/\.$/, '');
+            if (!temp[firstKey]) {
+                temp[firstKey] = [];
             }
+            const partKeys = secondKey.split('.').reverse();
+            let tempObj = partKeys.reduce((p, c) => {
+                if (!c) {
+                    return p;
+                }
+                return Object.defineProperty({}, c, {
+                    value: p,
+                    enumerable: true,
+                    configurable: true,
+                    writable: true
+                });
+            }, obj[_key]);
+            if (typeof tempObj == 'object') {
+                temp[firstKey][currIndex] = deepmerge(temp[firstKey][currIndex], tempObj);
+            } else {
+                temp[firstKey][currIndex] = tempObj;
+            }
+        } else {
+            temp[_key] = obj[_key];
         }
     });
-}
+    return temp;
+};

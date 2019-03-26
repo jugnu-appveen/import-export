@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const mcrud = require('mcrud');
+const XLSX = require('xlsx');
 const j2cParser = require('json2csv').Parser;
 
 const crudMethods = mcrud.getCRUDMethods({
@@ -18,14 +19,36 @@ crudMethods.get({
     records.forEach(e => {
         delete e._id;
     });
-    records = records.map(e => flatten(e));
-    records.forEach((row, i) => {
-        checkForArray(row, i);
-    });
-    createCSV('main', records);
-    Object.keys(arrayGroup).forEach(key => {
-        createCSV(key, JSON.parse(JSON.stringify(arrayGroup[key])));
-    });
+    const splitCount = 200;
+    const segmentLength = Math.floor(records.length / splitCount);
+    const promiseArr = [];
+    let promise;
+    if (records.length > splitCount) {
+        for (let i = 0; i < splitCount; i++) {
+            if (i === splitCount - 1) {
+                promiseArr.push(records.map(e => flatten(e, true)));
+            } else {
+                promiseArr.push(records.splice(i, segmentLength).map(e => flatten(e, true)));
+            }
+        }
+        promise = Promise.all(promiseArr)
+    } else {
+        promise = e.convertToJSON(records);
+    }
+    promise.then(data => {
+        if (Array.isArray(data[0])) {
+            data = Array.prototype.concat.apply([], data);
+        }
+        createExcel('main', JSON.parse(JSON.stringify(data)));
+        // createCSV('main', JSON.parse(JSON.stringify(data)));
+    }).catch(err => {
+        console.log(err);
+    })
+    // records = records.map(e => flatten(e, true));
+    // records.forEach((row, i) => {
+    //     checkForArray(row, i);
+    // });
+    // createCSV('main', records);
 }).catch(err => {
     console.log(err);
 });
@@ -62,6 +85,39 @@ function flatten(obj, deep, parent) {
 function createCSV(filename, data) {
     const parser = new j2cParser();
     fs.writeFileSync(path.join(__dirname, 'export', filename + '.csv'), parser.parse(data), 'utf8');
+}
+
+function createExcel(filename, data) {
+    const headers = getHeaders(data);
+    const workbook = XLSX.utils.book_new();
+    if (!workbook.Custprops) {
+        workbook.Custprops = {};
+    }
+    if (!workbook.Props) {
+        workbook.Props = {};
+    }
+    workbook.Custprops.createdBy = 'ODP';
+    workbook.Props.Application = 'ODP-Appcenter';
+    workbook.Props.Author = 'Jugnu Agrawal';
+    workbook.Props.Company = 'appveen';
+    workbook.Props.Title = filename;
+    const sheet = XLSX.utils.json_to_sheet(data, {
+        header: headers
+    });
+    XLSX.utils.book_append_sheet(workbook, sheet, 'sheet1');
+
+    XLSX.writeFile(workbook, path.join(__dirname, 'export', filename + '.xls'));
+    fs.writeFileSync(path.join(__dirname, 'export', filename + '.csv'), XLSX.utils.sheet_to_csv(sheet), 'utf8');
+}
+
+function getHeaders(data) {
+    let headers = [];
+    data.forEach(row => {
+        if (Object.keys(row).length > headers.length) {
+            headers = Object.keys(row);
+        }
+    });
+    return headers;
 }
 
 function checkForArray(record, index) {

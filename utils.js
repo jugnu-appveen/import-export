@@ -24,9 +24,10 @@ e.readFile = (filePath) => {
 /**
  * @param {string} filePath Location of the file to read
  * @param {string} sheetName Name of the sheet to select
+ * @param {boolean} nomerge Flag to not merge
  * @returns {Promise}
  */
-e.readSheet = (filePath, sheetName) => {
+e.readSheet = (filePath, sheetName, nomerge) => {
     return new Promise((resolve, reject) => {
         try {
             const workbook = XLSX.readFile(filePath);
@@ -53,7 +54,7 @@ e.readSheet = (filePath, sheetName) => {
                 }
                 let fileName = filePath.split('/')[filePath.split('/').length - 1];
                 fileName = fileName.replace(/.csv$/, '');
-                e.prepareForMerge(fileName, data).then(group => {
+                e.prepareForMerge(fileName, data, nomerge).then(group => {
                     e.saveJson(filePath, group).then(status => {
                         resolve(group);
                     }).catch(err => {
@@ -179,11 +180,12 @@ e.stitchData = (folderPath) => {
 /**
  * @param {string} fileName name of file as key
  * @param {object[]} data data array
+ * @param {boolean} nomerge flag to not merge
  * @returns {Promise} Promise of JSON objects grouped by refId
  */
-e.prepareForMerge = (fileName, data) => {
+e.prepareForMerge = (fileName, data, nomerge) => {
     return new Promise((resolve, reject) => {
-        if (fileName === 'main') {
+        if (nomerge) {
             resolve(data);
             return;
         }
