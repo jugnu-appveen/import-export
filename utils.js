@@ -267,13 +267,18 @@ e.getValue = function (key, obj, delimeter) {
 /**
  * @param {Object} header Header object
  * @param {Object} row row object
+ * @param {Object} [mapping] mapping object
  * @returns {Object} Object with keys and values
  */
-function createObject(header, row) {
+function createObject(header, row, mapping) {
     const obj = {};
     Object.keys(header).forEach(key => {
         if (header[key] !== '_refId') {
-            obj[header[key]] = row[key];
+            if(mapping && mapping[header[key]]){
+                obj[header[key]] = row[key];
+            } else{
+                obj[header[key]] = row[key];
+            }
         }
     });
     return obj;
